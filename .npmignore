@@ -1,0 +1,13 @@
+.husky
+node_modules
+script
+script
+.eslintignore
+.eslintrc.json
+.prettierrc
+commitlint.config.js
+jasmine.json
+tsconfig.*.json
+tsconfig.json
+src
+yarn-error.log

@@ -1,5 +1,9 @@
 {
   "compilerOptions": {},
   "include": [],
-  "references": []
+  "references": [
+    {
+      "path": "./tsconfig.build.json"
+    }
+  ]
 }

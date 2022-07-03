@@ -1,17 +1,19 @@
 {
-  "name": "init-project",
-  "version": "1.0.0",
+  "name": "cyia-ngx-devkit",
+  "version": "0.0.1",
   "description": "",
-  "main": "index.js",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
   "scripts": {
     "prepare": "husky install",
     "test": "npm run test:jasmine",
     "test:jasmine": "tsc -p ./script/tsconfig.startup-jasmine.json && node ./script/startup-jasmine.js",
-    "coverage": "nyc npm run test"
+    "coverage": "nyc npm run test",
+    "build": "tsc -p tsconfig.build.json"
   },
-  "author": "",
-  "license": "ISC",
-  "private": true,
+  "author": "wszgrcy",
+  "license": "MIT",
+  "private": false,
   "devDependencies": {
     "@commitlint/cli": "^16.0.2",
     "@commitlint/config-conventional": "^16.0.0",
@@ -28,6 +30,12 @@
     "prettier": "^2.5.1",
     "pretty-quick": "^3.1.3",
     "static-injector": "^1.0.9",
-    "typescript": "^4.5.4"
+    "typescript": "^4.5.4",
+    "webpack": "5.72.1"
+  },
+  "dependencies": {
+    "@angular-devkit/architect": "^0.1400.4",
+    "@angular-devkit/core": "^14.0.4",
+    "rxjs": "6.6.7"
   }
 }
