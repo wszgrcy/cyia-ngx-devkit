@@ -327,7 +327,20 @@ export class BuilderHarness<T> {
     options?: Partial<BuilderHarnessExecutionOptions>
   ): Promise<BuilderHarnessExecutionResult> {
     // Return the first result
-    return this.execute(options).pipe(first()).toPromise();
+    return new Promise((resolve, reject) => {
+      let value: BuilderHarnessExecutionResult;
+      this.execute(options)
+        .pipe(first())
+        .subscribe({
+          next: (item) => {
+            value = item;
+          },
+          error: (err) => reject(err),
+          complete: () => {
+            resolve(value);
+          },
+        });
+    });
   }
 
   async appendToFile(path: string, content: string): Promise<void> {

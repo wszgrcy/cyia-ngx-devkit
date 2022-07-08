@@ -1,6 +1,6 @@
 {
   "name": "cyia-ngx-devkit",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
@@ -15,6 +15,8 @@
   "license": "MIT",
   "private": false,
   "devDependencies": {
+    "@angular-devkit/architect": "^0.1400.4",
+    "@angular-devkit/core": "^14.0.4",
     "@commitlint/cli": "^16.0.2",
     "@commitlint/config-conventional": "^16.0.0",
     "@types/jasmine": "^3.10.3",
@@ -33,7 +35,7 @@
     "typescript": "^4.5.4",
     "webpack": "5.72.1"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@angular-devkit/architect": "^0.1400.4",
     "@angular-devkit/core": "^14.0.4",
     "rxjs": "6.6.7"
