@@ -15,16 +15,22 @@ import { TestProjectHost } from '@angular-devkit/architect/testing';
 
 import {
   Path,
-  analytics,
   getSystemPath,
-  join,
   json,
   logging,
   normalize,
 } from '@angular-devkit/core';
+import { dirname, join } from 'node:path';
 
-import { readFileSync } from 'fs';
-import { Observable, Subject, from, of } from 'rxjs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
+import {
+  Observable,
+  Subject,
+  firstValueFrom,
+  from,
+  lastValueFrom,
+  of,
+} from 'rxjs';
 import {
   catchError,
   finalize,
@@ -34,6 +40,7 @@ import {
   shareReplay,
 } from 'rxjs/operators';
 import type { Configuration } from 'webpack';
+import fs from 'node:fs/promises';
 
 export interface TestContext {
   buildSuccess: (webpackConfig: Configuration) => void;
@@ -121,6 +128,10 @@ export class BuilderHarness<T> {
     );
   }
 
+  private resolvePath(path: string): string {
+    return join(getSystemPath(this.host.root()), path);
+  }
+
   useProject(name: string, metadata: Record<string, unknown> = {}): this {
     if (!name) {
       throw new Error('Project name cannot be an empty string.');
@@ -149,7 +160,7 @@ export class BuilderHarness<T> {
     return this;
   }
 
-  withBuilderTarget<O>(
+  withBuilderTarget<O extends object>(
     target: string,
     handler: BuilderHandlerFn<O & json.JsonObject>,
     options?: O,
@@ -220,14 +231,14 @@ export class BuilderHarness<T> {
       getOptions: async (project, target, configuration) => {
         this.validateProjectName(project);
         if (target === this.targetName) {
-          return this.options.get(configuration ?? null) ?? {};
+          return (this.options.get(configuration ?? null) ??
+            {}) as json.JsonObject;
         } else if (configuration !== undefined) {
           // Harness builder targets currently do not support configurations
           return {};
         } else {
-          return (
-            (this.builderTargets.get(target)?.options as json.JsonObject) || {}
-          );
+          return (this.builderTargets.get(target)?.options ||
+            {}) as json.JsonObject;
         }
       },
       hasTarget: async (project, target) => {
@@ -251,20 +262,17 @@ export class BuilderHarness<T> {
           }
         }
 
-        const validator = await this.schemaRegistry
-          .compile(schema ?? true)
-          .toPromise();
-        const { data } = await validator(options).toPromise();
+        const validator = await this.schemaRegistry.compile(schema ?? true);
+        const { data } = await validator(options);
 
         return data as json.JsonObject;
       },
     };
     const context = new HarnessBuilderContext(
       this.builderInfo,
-      getSystemPath(this.host.root()),
+      this.resolvePath('.'),
       contextHost,
-      useNativeFileWatching ? undefined : this.watcherNotifier,
-      options.testContext
+      useNativeFileWatching ? undefined : this.watcherNotifier
     );
     if (this.targetName !== undefined) {
       context.target = {
@@ -277,8 +285,10 @@ export class BuilderHarness<T> {
     const logs: logging.LogEntry[] = [];
     context.logger.subscribe((e) => logs.push(e));
 
-    return this.schemaRegistry.compile(this.builderInfo.optionSchema).pipe(
-      mergeMap((validator) => validator(targetOptions as any)),
+    return from(
+      this.schemaRegistry.compile(this.builderInfo.optionSchema)
+    ).pipe(
+      mergeMap((validator) => validator(targetOptions)),
       map((validationResult) => validationResult.data),
       mergeMap((data) =>
         convertBuilderOutputToObservable(
@@ -327,20 +337,7 @@ export class BuilderHarness<T> {
     options?: Partial<BuilderHarnessExecutionOptions>
   ): Promise<BuilderHarnessExecutionResult> {
     // Return the first result
-    return new Promise((resolve, reject) => {
-      let value: BuilderHarnessExecutionResult;
-      this.execute(options)
-        .pipe(first())
-        .subscribe({
-          next: (item) => {
-            value = item;
-          },
-          error: (err) => reject(err),
-          complete: () => {
-            resolve(value);
-          },
-        });
-    });
+    return firstValueFrom(this.execute(options));
   }
 
   async appendToFile(path: string, content: string): Promise<void> {
@@ -348,16 +345,12 @@ export class BuilderHarness<T> {
   }
 
   async writeFile(path: string, content: string | Buffer): Promise<void> {
-    this.host
-      .scopedSync()
-      .write(
-        normalize(path),
-        typeof content === 'string' ? Buffer.from(content) : content
-      );
+    const fullPath = this.resolvePath(path);
 
-    this.watcherNotifier?.notify([
-      { path: getSystemPath(join(this.host.root(), path)), type: 'modified' },
-    ]);
+    await fs.mkdir(dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content, 'utf-8');
+
+    this.watcherNotifier?.notify([{ path: fullPath, type: 'modified' }]);
   }
 
   async writeFiles(files: Record<string, string | Buffer>): Promise<void> {
@@ -366,17 +359,12 @@ export class BuilderHarness<T> {
       : undefined;
 
     for (const [path, content] of Object.entries(files)) {
-      this.host
-        .scopedSync()
-        .write(
-          normalize(path),
-          typeof content === 'string' ? Buffer.from(content) : content
-        );
+      const fullPath = this.resolvePath(path);
 
-      watchEvents?.push({
-        path: getSystemPath(join(this.host.root(), path)),
-        type: 'modified',
-      });
+      await fs.mkdir(dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, content, 'utf-8');
+
+      watchEvents?.push({ path: fullPath, type: 'modified' });
     }
 
     if (watchEvents) {
@@ -385,11 +373,11 @@ export class BuilderHarness<T> {
   }
 
   async removeFile(path: string): Promise<void> {
-    this.host.scopedSync().delete(normalize(path));
+    const fullPath = this.resolvePath(path);
 
-    this.watcherNotifier?.notify([
-      { path: getSystemPath(join(this.host.root(), path)), type: 'deleted' },
-    ]);
+    await fs.unlink(fullPath);
+
+    this.watcherNotifier?.notify([{ path: fullPath, type: 'deleted' }]);
   }
 
   async modifyFile(
@@ -398,27 +386,24 @@ export class BuilderHarness<T> {
   ): Promise<void> {
     const content = this.readFile(path);
     await this.writeFile(path, await modifier(content));
-
-    this.watcherNotifier?.notify([
-      { path: getSystemPath(join(this.host.root(), path)), type: 'modified' },
-    ]);
   }
 
   hasFile(path: string): boolean {
-    return this.host.scopedSync().exists(normalize(path));
+    const fullPath = this.resolvePath(path);
+
+    return existsSync(fullPath);
   }
 
   hasFileMatch(directory: string, pattern: RegExp): boolean {
-    return this.host
-      .scopedSync()
-      .list(normalize(directory))
-      .some((name) => pattern.test(name));
+    const fullPath = this.resolvePath(directory);
+
+    return readdirSync(fullPath).some((name) => pattern.test(name));
   }
 
   readFile(path: string): string {
-    const content = this.host.scopedSync().read(normalize(path));
+    const fullPath = this.resolvePath(path);
 
-    return Buffer.from(content).toString('utf8');
+    return readFileSync(fullPath, 'utf-8');
   }
 
   private validateProjectName(name: string): void {
@@ -477,15 +462,9 @@ class HarnessBuilderContext implements BuilderContext {
     public builder: BuilderInfo,
     basePath: string,
     private readonly contextHost: ContextHost,
-    public readonly watcherFactory: BuilderWatcherFactory | undefined,
-    public readonly testContext: TestContext | undefined
+    public readonly watcherFactory: BuilderWatcherFactory | undefined
   ) {
     this.workspaceRoot = this.currentDirectory = basePath;
-  }
-
-  get analytics(): analytics.Analytics {
-    // Can be undefined even though interface does not allow it
-    return undefined as unknown as analytics.Analytics;
   }
 
   addTeardown(teardown: () => Promise<void> | void): void {
@@ -543,8 +522,7 @@ class HarnessBuilderContext implements BuilderContext {
       info,
       this.workspaceRoot,
       this.contextHost,
-      this.watcherFactory,
-      undefined
+      this.watcherFactory
     );
     context.target = target;
     context.logger = scheduleOptions?.logger || this.logger.createChild('');
@@ -566,7 +544,10 @@ class HarnessBuilderContext implements BuilderContext {
       },
       output: output.pipe(shareReplay()),
       get result() {
-        return this.output.pipe(first()).toPromise();
+        return firstValueFrom(this.output);
+      },
+      get lastOutput() {
+        return lastValueFrom(this.output);
       },
     };
 
